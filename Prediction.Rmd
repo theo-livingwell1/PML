@@ -1,0 +1,121 @@
+---
+title: "Prediction"
+author: "Theo Livingwell"
+date: "October 10, 2017"
+output: html_document
+---
+
+
+Data was collected from 6 subjects wearing accelerometers on the belt, forearm, arm, and dumbell. # They performed barbell lifts correctly and incorrectly in 5 different ways. 
+
+Load required required packages
+
+```{r}
+library(caret)
+library(randomForest)
+
+```
+
+load test and training data from local computer. Store them in train_data and test_data. Data came from  http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+
+```{r}
+train_data <- read.csv("D:/Document/Supplement/Data_Sci/PML/pml-training.csv", header = TRUE)
+
+test_data <- read.csv("D:/Document/Supplement/Data_Sci/PML/pml-testing.csv", header=TRUE)
+
+str(train_data)
+str(test_data)
+
+```
+
+
+Lets remove covariates that are close to zero and store in ctzc variable
+
+```{r}
+ctzc <- nearZeroVar(train_data,saveMetrics=TRUE)
+train_data <- train_data[,!ctzc$nzv]
+test_data <- test_data[,!ctzc$nzv]
+
+```
+
+Filter missing values from train_data and test_data, then reassign to train_data2 and test_data2 respectively
+
+```{r}
+train_data2 <- train_data[,(colSums(is.na(train_data)) == 0)]
+test_data2 <- test_data[,(colSums(is.na(test_data)) == 0)]
+```
+
+Now delete unwanted columns
+
+```{R}
+colDel_train_data<- c("user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","num_window")
+colDel_test_data <- c("user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","num_window","problem_id")
+
+train_colDel <- train_data2[,!(names(train_data2) %in% colDel_train_data)]
+test_colDel <- test_data2[,!(names(test_data2) %in% colDel_test_data)]
+
+dim(test_colDel)
+dim(train_colDel)
+
+```
+
+split training data into 2 sets: validation set and training set. The new varable are split_train and split_validate
+
+```{r}
+newTrain_data <- createDataPartition(y=train_data$classe, p=0.7, list=FALSE)
+split_train <- train_colDel[newTrain_data,]
+split_validate <- train_colDel[-newTrain_data,]
+```
+
+The split_train and split_validate dataset has 52 predictors and 1 response. THis produces a weak correlation between the predictor and the outcome variable. models generated with RandomForest are more stronger.  
+
+```{r}
+data_correlation <- abs(sapply(colnames(split_train[, -ncol(train_data)]), function(x) cor(as.numeric(split_train[, x]), as.numeric(split_train$classe), method = "spearman")))
+```
+
+#RandomForest model
+# I shal try to fit a random forest model and check how it performance on the validation set
+
+```{r}
+set.seed(1000)
+
+regressor_line <- train(classe ~ ., method = "rf", data=split_train, importance = T, trControl = trainControl(method = "cv", number = 3))
+spec_validation <- predict(regressor_line, newdata=split_validate)
+
+```` 
+
+check model's output
+
+```{r}
+confusionMatrix(spec_validation,split_validate$classe)
+```
+
+check relevant variables
+
+```{r}
+relevant_var <- varImp(regressor_line)$importance
+varImpPlot(regressor_line$finalModel, sort = TRUE, type = 1, pch = 19, col = 1, cex = 1, main = "Relevance of the Predictors")
+
+```
+
+The randomForest function generates an accuracy of 0.9913. 0.9% is the out of sample error. The 4 most relevant variables according to the model fit are 'roll_belt', 'yaw_belt', 'pitch_forearm' and 'pitch_belt'.
+
+Prediction
+
+Now lets use randomForest model to predict on the testing dataset without the outcome variable and save the prediction output.
+
+```{}
+testing_prediction <- predict(regressor_line, newdata=test_colDel)
+writeFiles <- function(x) {
+        p <- length(x)
+        for (i in 1:p) {
+                file_name <- paste0("problem_id", i, ".txt")
+                write.table(x[i], file=file_name, quote=FALSE, row.names=FALSE,col.names=FALSE)
+        }
+}
+writeFiles(testing_prediction)
+
+```
+
+The randomForest model was constructed using 52 variables. 0.9% is the out of sample error
+
